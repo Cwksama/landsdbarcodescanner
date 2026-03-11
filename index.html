@@ -2,8 +2,8 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>條碼掃描分類器 (Web版)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Barcode Scanner</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
@@ -16,12 +16,21 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0; padding: 0; background-color: #f5f5f5;
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+            display: flex; flex-direction: column; 
+            height: 100vh;
+            height: -webkit-fill-available; /* 解決 iOS Safari 100vh 問題 */
+            overflow: hidden;
+            position: fixed; /* 鎖定背景，防止橡皮筋回彈 */
+            width: 100%;
+            overscroll-behavior: none;
+            touch-action: manipulation; /* 禁用雙擊縮放 */
         }
         header {
-            background-color: var(--primary); color: white; padding: 10px 15px;
+            background-color: var(--primary); color: white; 
+            padding: calc(10px + env(safe-area-inset-top)) 15px 10px 15px; /* 避開 iOS 劉海屏 */
             display: flex; justify-content: space-between; align-items: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;
+            flex-shrink: 0;
         }
         h1 { margin: 0; font-size: 16px; }
         .header-actions button {
@@ -29,47 +38,114 @@
             padding: 5px 10px; border-radius: 4px; margin-left: 5px; cursor: pointer;
         }
         #scanner-container {
-            flex: 0 0 35%; background: #000; position: relative; overflow: hidden;
+            flex: 0 0 45%; background: #000; position: relative; overflow: hidden;
         }
-        #reader { width: 100% !important; height: 100% !important; }
+        #reader { 
+            width: 100% !important; height: 100% !important; 
+            border: none !important; 
+        }
         #reader video { object-fit: cover !important; }
+
+        /* 視覺掃描框 (加大版) */
+        #scanner-container::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 85%;
+            height: 150px; /* 從原本的 80px/100px 增加到 150px */
+            border: 2px solid rgba(255, 255, 255, 0.7);
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4); /* 稍微調淡陰影，讓視野更好 */
+            pointer-events: none;
+        }
 
         .controls {
             padding: 8px; background: white;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1); z-index: 5;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
         .segmented-btn {
             display: flex; background: #eee; border-radius: 8px; padding: 2px;
         }
         .segmented-btn input { display: none; }
         .segmented-btn label {
-            flex: 1; text-align: center; padding: 8px 4px; border-radius: 6px;
-            cursor: pointer; font-size: 12px; transition: all 0.2s; white-space: nowrap;
+            flex: 1; text-align: center; padding: 10px 4px; border-radius: 6px;
+            cursor: pointer; font-size: 13px; transition: all 0.2s; white-space: nowrap;
+            font-weight: bold;
         }
         #cat1:checked + label[for="cat1"] { background: var(--primary); color: white; }
-        #cat2:checked + label[for="cat2"] { background: var(--success); color: white; }
         #cat3:checked + label[for="cat3"] { background: var(--warning); color: white; }
         #cat4:checked + label[for="cat4"] { background: var(--info); color: white; }
 
-        .lists-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .col-headers { display: flex; background: #fafafa; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .next-row-btn {
+            background-color: var(--success);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .next-row-btn:active { transform: translateY(1px); box-shadow: none; }
+
+        .lists-container { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; 
+            padding-bottom: env(safe-area-inset-bottom); /* 避開底部 Home 條 */
+        }
+        .col-headers { display: flex; background: #fafafa; border-bottom: 2px solid #ddd; }
         .col-header {
             flex: 1; padding: 8px; text-align: center; font-weight: bold;
-            font-size: 12px; border-right: 1px solid #ddd;
+            font-size: 11px; border-right: 1px solid #ddd; color: #666;
         }
         .col-header:last-child { border-right: none; }
+
+        /* 調整欄位寬度 */
+        .col-header:nth-child(1), .cell:nth-child(1),
+        .col-header:nth-child(2), .cell:nth-child(2),
+        .col-header:nth-child(3), .cell:nth-child(3) {
+            flex: 0.9;
+        }
+        .col-header:nth-child(4), .cell:nth-child(4) {
+            flex: 1.3;
+        }
+        
         .col-data-rows { flex: 1; overflow-y: auto; }
         .row { display: flex; border-bottom: 1px solid #eee; }
+        .row.current-row { background-color: #fff9c4; font-weight: bold; border-bottom: 2px solid var(--warning); }
         .cell {
-            flex: 1; padding: 8px; font-size: 12px;
+            flex: 1; padding: 8px; font-size: 11px;
             word-break: break-all; border-right: 1px solid #eee;
-            display: flex; align-items: center; justify-content: space-between;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center;
         }
-        .cell:last-child { border-right: none; }
+        .cell:last-child { border-right: none; justify-content: space-between; }
         .cell button {
-            background: none; border: none; color: var(--danger);
-            font-size: 16px; cursor: pointer; padding: 0 5px; margin-left: 5px;
+            background-color: var(--danger);
+            color: white;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            padding: 0;
+            margin-left: 5px;
+            flex-shrink: 0;
         }
+        .cell button:active { transform: scale(0.9); }
 
         #status-overlay {
             position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -80,7 +156,7 @@
 </head>
 <body>
     <header>
-        <h1>條碼掃描分類器</h1>
+        <h1>Barcode Scanner</h1>
         <div class="header-actions">
             <button onclick="clearAll()">清除</button>
             <button onclick="exportCSV()" style="background: white; color: var(--primary); font-weight: bold;">匯出</button>
@@ -88,21 +164,20 @@
     </header>
 
     <div id="scanner-container">
-        <div id="status-overlay">目前分類：Part Barcode</div>
+        <div id="status-overlay">目前分類：Borrower</div>
         <div id="reader"></div>
     </div>
 
     <div class="controls">
         <div class="segmented-btn">
-            <input type="radio" name="category" id="cat1" value="Part Barcode" checked onchange="updateCategory('Part Barcode')">
-            <label for="cat1">Part Barcode</label>
-            <input type="radio" name="category" id="cat2" value="Charge-out On" onchange="updateCategory('Charge-out On')">
-            <label for="cat2">Charge-out On</label>
+            <input type="radio" name="category" id="cat4" value="Location" checked onchange="updateCategory('Location')">
+            <label for="cat4">Location</label>
             <input type="radio" name="category" id="cat3" value="Borrower" onchange="updateCategory('Borrower')">
             <label for="cat3">Borrower</label>
-            <input type="radio" name="category" id="cat4" value="Location" onchange="updateCategory('Location')">
-            <label for="cat4">Location</label>
+            <input type="radio" name="category" id="cat1" value="Part Barcode" onchange="updateCategory('Part Barcode')">
+            <label for="cat1">Part Barcode</label>
         </div>
+        <button class="next-row-btn" onclick="nextRow()">完成此行，跳到下一行</button>
     </div>
 
     <div class="lists-container">
@@ -116,8 +191,8 @@
     </div>
 
     <script>
-        let currentCategory = 'Part Barcode';
-        let lastPartBarcode = localStorage.getItem('last_part_barcode') || null;
+        let currentCategory = 'Borrower';
+        let currentRow = JSON.parse(localStorage.getItem('current_row') || '{"Part Barcode":"","Charge-out On":"","Borrower":"","Location":""}');
         let dataRows = JSON.parse(localStorage.getItem('scanned_data_rows') || '[]');
 
         const html5QrCode = new Html5Qrcode("reader");
@@ -130,50 +205,71 @@
                 Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
                 Html5QrcodeSupportedFormats.ITF
             ];
-            html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 15, qrbox: { width: 280, height: 120 }, formatsToSupport: formatsToSupport },
-                onScanSuccess
-            ).catch(err => {
+            html5QrCode.start({ facingMode: "environment" }, { formatsToSupport: formatsToSupport }, onScanSuccess)
+            .catch(err => {
                 console.error("無法啟動相機:", err);
-                alert("請確保已授權相機權限，並使用 HTTPS 開啟頁面。");
+                alert("相機啟動失敗。請確保已授權，並嘗試重新整理頁面。");
             });
         }
 
         function onScanSuccess(decodedText) {
-            // 防止短時間內重複掃描同一個碼
             if (html5QrCode.isScanning) {
                 html5QrCode.pause();
-                setTimeout(() => html5QrCode.resume(), 1500);
+                setTimeout(() => html5QrCode.resume(), 1000);
             }
 
             playBeep();
             showSuccessOverlay(decodedText);
 
-            if (currentCategory === 'Part Barcode') {
-                lastPartBarcode = decodedText;
-                localStorage.setItem('last_part_barcode', lastPartBarcode);
-                // 可以在此處給予提示，告知 Part Barcode 已更新
-            } else if (currentCategory === 'Borrower' || currentCategory === 'Location') {
-                if (!lastPartBarcode) {
-                    alert("請先掃描一個 Part Barcode！");
-                    return;
-                }
-                
+            // 如果這一行還沒有時間，填入當前時間
+            if (!currentRow['Charge-out On']) {
                 const now = new Date();
                 const pad = (num) => num.toString().padStart(2, '0');
-                const timestamp = `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                currentRow['Charge-out On'] = `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            }
 
-                let newRow = {
-                    'Part Barcode': lastPartBarcode,
-                    'Charge-out On': timestamp,
-                    'Borrower': '',
-                    'Location': ''
-                };
-                newRow[currentCategory] = decodedText;
+            // 更新當前行對應欄位
+            currentRow[currentCategory] = decodedText;
+            
+            saveState();
+            renderTable();
+        }
+
+        function nextRow() {
+            // 檢查是否有任何數據（不含時間）
+            if (currentRow['Part Barcode'] || currentRow['Borrower'] || currentRow['Location']) {
                 
-                dataRows.unshift(newRow);
-                saveAndRefresh();
+                // 如果 Location 是空的，且歷史紀錄中有資料，則自動填入上一個 Location
+                if (!currentRow['Location'] && dataRows.length > 0) {
+                    currentRow['Location'] = dataRows[0]['Location'];
+                }
+
+                // 如果 Borrower 是空的，且歷史紀錄中有資料，則自動填入上一個 Borrower
+                if (!currentRow['Borrower'] && dataRows.length > 0) {
+                    currentRow['Borrower'] = dataRows[0]['Borrower'];
+                }
+
+                dataRows.unshift({...currentRow});
+                currentRow = {"Part Barcode":"","Charge-out On":"","Borrower":"","Location":""};
+                saveState();
+                renderTable();
+                
+                // 使用 overlay 代替 alert，避免相機卡住
+                const overlay = document.getElementById('status-overlay');
+                overlay.textContent = "✅ 已儲存至歷史紀錄";
+                overlay.style.backgroundColor = "var(--success)";
+                setTimeout(() => {
+                    overlay.textContent = `目前分類：${currentCategory}`;
+                    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                }, 1500);
+            } else {
+                const overlay = document.getElementById('status-overlay');
+                overlay.textContent = "❌ 請先掃描資料";
+                overlay.style.backgroundColor = "var(--danger)";
+                setTimeout(() => {
+                    overlay.textContent = `目前分類：${currentCategory}`;
+                    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                }, 1500);
             }
         }
 
@@ -182,53 +278,146 @@
             document.getElementById('status-overlay').textContent = `目前分類：${cat}`;
         }
 
-        function saveAndRefresh() {
+        function saveState() {
+            localStorage.setItem('current_row', JSON.stringify(currentRow));
             localStorage.setItem('scanned_data_rows', JSON.stringify(dataRows));
-            renderTable();
         }
 
         function renderTable() {
             const tableBody = document.getElementById('data-rows');
             tableBody.innerHTML = '';
+            
+            // 格式化時間顯示，將日期與時間拆成兩行
+            const formatTimeForDisplay = (timeStr) => {
+                if (!timeStr || timeStr === '-') return '-';
+                const parts = timeStr.split(' ');
+                if (parts.length === 2) {
+                    return `<div>${parts[0]}</div><div style="font-size: 10px; color: #888;">${parts[1]}</div>`;
+                }
+                return timeStr;
+            };
+
+            // 顯示當前正在掃描的行（黃色高亮）
+            const curRowDiv = document.createElement('div');
+            curRowDiv.className = 'row current-row';
+            curRowDiv.innerHTML = `
+                <div class="cell">${currentRow['Part Barcode'] || '-'}</div>
+                <div class="cell" style="display: block; line-height: 1.2;">${formatTimeForDisplay(currentRow['Charge-out On'])}</div>
+                <div class="cell">${currentRow['Borrower'] || '-'}</div>
+                <div class="cell">${currentRow['Location'] || '-'}
+                    <button onclick="clearCurrentRow()" title="清空當前行">×</button>
+                </div>
+            `;
+            tableBody.appendChild(curRowDiv);
+
+            // 顯示已完成的歷史行
             dataRows.forEach((rowData, index) => {
                 const row = document.createElement('div');
                 row.className = 'row';
                 row.innerHTML = `
                     <div class="cell">${rowData['Part Barcode'] || ''}</div>
-                    <div class="cell">${rowData['Charge-out On'] || ''}</div>
+                    <div class="cell" style="display: block; line-height: 1.2;">${formatTimeForDisplay(rowData['Charge-out On'])}</div>
                     <div class="cell">${rowData['Borrower'] || ''}</div>
-                    <div class="cell">${rowData['Location'] || ''}<button onclick="removeRow(${index})">×</button></div>
+                    <div class="cell">${rowData['Location'] || ''}
+                        <button onclick="removeRow(${index})" title="刪除此行">×</button>
+                    </div>
                 `;
                 tableBody.appendChild(row);
             });
         }
 
+        function clearCurrentRow() {
+            // 只清空當前輸入的行
+            if (currentRow['Part Barcode'] || currentRow['Borrower'] || currentRow['Location']) {
+                currentRow = {"Part Barcode":"","Charge-out On":"","Borrower":"","Location":""};
+                saveState();
+                renderTable();
+                
+                const overlay = document.getElementById('status-overlay');
+                overlay.textContent = "🧹 已清空當前行資料";
+                overlay.style.backgroundColor = "var(--warning)";
+                setTimeout(() => {
+                    overlay.textContent = `目前分類：${currentCategory}`;
+                    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                }, 1000);
+            }
+        }
+
         function removeRow(index) {
+            // 直接刪除，不使用會阻塞相機的 confirm()
             dataRows.splice(index, 1);
-            saveAndRefresh();
+            saveState();
+            renderTable();
+            
+            // 顯示短暫提示
+            const overlay = document.getElementById('status-overlay');
+            overlay.textContent = "🗑️ 已刪除該行數據";
+            overlay.style.backgroundColor = "var(--danger)";
+            setTimeout(() => {
+                overlay.textContent = `目前分類：${currentCategory}`;
+                overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+            }, 1000);
         }
 
         function clearAll() {
-            if (confirm('確定要清除所有資料嗎？')) {
+            // 使用自定義 UI 代替 confirm()
+            const overlay = document.getElementById('status-overlay');
+            if (overlay.textContent.includes("確定要清除嗎？")) {
+                // 第二次點擊，執行清除
                 dataRows = [];
-                lastPartBarcode = null;
-                localStorage.removeItem('scanned_data_rows');
-                localStorage.removeItem('last_part_barcode');
-                saveAndRefresh();
+                currentRow = {"Part Barcode":"","Charge-out On":"","Borrower":"","Location":""};
+                saveState();
+                renderTable();
+                overlay.textContent = "✨ 資料已全數清空";
+                overlay.style.backgroundColor = "var(--success)";
+                setTimeout(() => {
+                    overlay.textContent = `目前分類：${currentCategory}`;
+                    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                }, 1500);
+            } else {
+                // 第一次點擊，顯示確認提示
+                overlay.textContent = "⚠️ 確定要清除嗎？(再點一次清除按鈕)";
+                overlay.style.backgroundColor = "var(--warning)";
+                setTimeout(() => {
+                    if (overlay.textContent.includes("確定要清除嗎？")) {
+                        overlay.textContent = `目前分類：${currentCategory}`;
+                        overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                    }
+                }, 3000);
             }
         }
 
         function exportCSV() {
-            if (dataRows.length === 0) return alert('沒有資料可匯出');
-
-            const headers = ['Part Barcode', 'Charge-out On', 'Borrower', 'Location'];
-            let csvContent = "﻿" + headers.join(',') + "
-";
+            // 匯出時合併歷史紀錄與當前行（如果有資料）
+            // 由於 dataRows 存儲時是 unshift (最新在前面)，匯出時需要反轉
+            let allData = [...dataRows];
             
-            dataRows.forEach(row => {
-                const values = headers.map(header => `"${row[header] || ''}"`);
-                csvContent += values.join(',') + "
-";
+            // 先將歷史紀錄反轉，讓舊的在前面
+            allData.reverse();
+
+            // 如果當前行有資料，將它加到最後面（最新的）
+            if (currentRow['Part Barcode'] || currentRow['Borrower'] || currentRow['Location']) {
+                allData.push(currentRow);
+            }
+
+            if (allData.length === 0) return alert('沒有資料可匯出');
+
+            const headers = ['Part Barcode', 'Charge-out On', 'Borrower', 'Location', 'Message'];
+            let csvContent = "\ufeff" + headers.join(',') + "\n";
+            
+            allData.forEach((row) => {
+                // 準備每一行的資料，第五欄（Message 欄位）在所有數據列中皆留空
+                // 因為 "Message" 已經顯示在第一列的標頭（Header）中了
+                const rowValues = [
+                    row['Part Barcode'] || '',
+                    row['Charge-out On'] || '',
+                    row['Borrower'] || '',
+                    row['Location'] || '',
+                    ''
+                ];
+                
+                // 將資料結合成 CSV 行，不使用引號
+                csvContent += rowValues.join(',') + "\n";
             });
 
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -262,10 +451,9 @@
             setTimeout(() => {
                 overlay.textContent = `目前分類：${currentCategory}`;
                 overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
-            }, 2000);
+            }, 1500);
         }
 
-        // 初始化
         renderTable();
         startScanner();
     </script>
