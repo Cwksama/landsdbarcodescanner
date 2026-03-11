@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>條碼掃描分類器 (Web版)</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        :root {
+            --primary: #2196F3; --bg-1: #e3f2fd;
+            --success: #4CAF50; --bg-2: #e8f5e9;
+            --warning: #FF9800; --bg-3: #fff3e0;
+            --info: #9C27B0;    --bg-4: #f3e5f5;
+            --danger: #f44336;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0; background-color: #f5f5f5;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
+        header {
+            background-color: var(--primary); color: white; padding: 10px 15px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;
+        }
+        h1 { margin: 0; font-size: 16px; }
+        .header-actions button {
+            background: none; border: 1px solid white; color: white;
+            padding: 5px 10px; border-radius: 4px; margin-left: 5px; cursor: pointer;
+        }
+        #scanner-container {
+            flex: 0 0 35%; background: #000; position: relative; overflow: hidden;
+        }
+        #reader { width: 100% !important; height: 100% !important; }
+        #reader video { object-fit: cover !important; }
+
+        .controls {
+            padding: 8px; background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); z-index: 5;
+        }
+        .segmented-btn {
+            display: flex; background: #eee; border-radius: 8px; padding: 2px;
+        }
+        .segmented-btn input { display: none; }
+        .segmented-btn label {
+            flex: 1; text-align: center; padding: 8px 4px; border-radius: 6px;
+            cursor: pointer; font-size: 12px; transition: all 0.2s; white-space: nowrap;
+        }
+        #cat1:checked + label[for="cat1"] { background: var(--primary); color: white; }
+        #cat2:checked + label[for="cat2"] { background: var(--success); color: white; }
+        #cat3:checked + label[for="cat3"] { background: var(--warning); color: white; }
+        #cat4:checked + label[for="cat4"] { background: var(--info); color: white; }
+
+        .lists-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .col-headers { display: flex; background: #fafafa; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .col-header {
+            flex: 1; padding: 8px; text-align: center; font-weight: bold;
+            font-size: 12px; border-right: 1px solid #ddd;
+        }
+        .col-header:last-child { border-right: none; }
+        .col-data-rows { flex: 1; overflow-y: auto; }
+        .row { display: flex; border-bottom: 1px solid #eee; }
+        .cell {
+            flex: 1; padding: 8px; font-size: 12px;
+            word-break: break-all; border-right: 1px solid #eee;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .cell:last-child { border-right: none; }
+        .cell button {
+            background: none; border: none; color: var(--danger);
+            font-size: 16px; cursor: pointer; padding: 0 5px; margin-left: 5px;
+        }
+
+        #status-overlay {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); color: white; padding: 5px 15px;
+            border-radius: 20px; font-size: 14px; pointer-events: none; z-index: 20;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>條碼掃描分類器</h1>
+        <div class="header-actions">
+            <button onclick="clearAll()">清除</button>
+            <button onclick="exportCSV()" style="background: white; color: var(--primary); font-weight: bold;">匯出</button>
+        </div>
+    </header>
+
+    <div id="scanner-container">
+        <div id="status-overlay">目前分類：Part Barcode</div>
+        <div id="reader"></div>
+    </div>
+
+    <div class="controls">
+        <div class="segmented-btn">
+            <input type="radio" name="category" id="cat1" value="Part Barcode" checked onchange="updateCategory('Part Barcode')">
+            <label for="cat1">Part Barcode</label>
+            <input type="radio" name="category" id="cat2" value="Charge-out On" onchange="updateCategory('Charge-out On')">
+            <label for="cat2">Charge-out On</label>
+            <input type="radio" name="category" id="cat3" value="Borrower" onchange="updateCategory('Borrower')">
+            <label for="cat3">Borrower</label>
+            <input type="radio" name="category" id="cat4" value="Location" onchange="updateCategory('Location')">
+            <label for="cat4">Location</label>
+        </div>
+    </div>
+
+    <div class="lists-container">
+        <div class="col-headers">
+            <div class="col-header">Part Barcode</div>
+            <div class="col-header">Charge-out On</div>
+            <div class="col-header">Borrower</div>
+            <div class="col-header">Location</div>
+        </div>
+        <div id="data-rows" class="col-data-rows"></div>
+    </div>
+
+    <script>
+        let currentCategory = 'Part Barcode';
+        let lastPartBarcode = localStorage.getItem('last_part_barcode') || null;
+        let dataRows = JSON.parse(localStorage.getItem('scanned_data_rows') || '[]');
+
+        const html5QrCode = new Html5Qrcode("reader");
+
+        function startScanner() {
+            const formatsToSupport = [
+                Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_93,
+                Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.ITF
+            ];
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 15, qrbox: { width: 280, height: 120 }, formatsToSupport: formatsToSupport },
+                onScanSuccess
+            ).catch(err => {
+                console.error("無法啟動相機:", err);
+                alert("請確保已授權相機權限，並使用 HTTPS 開啟頁面。");
+            });
+        }
+
+        function onScanSuccess(decodedText) {
+            // 防止短時間內重複掃描同一個碼
+            if (html5QrCode.isScanning) {
+                html5QrCode.pause();
+                setTimeout(() => html5QrCode.resume(), 1500);
+            }
+
+            playBeep();
+            showSuccessOverlay(decodedText);
+
+            if (currentCategory === 'Part Barcode') {
+                lastPartBarcode = decodedText;
+                localStorage.setItem('last_part_barcode', lastPartBarcode);
+                // 可以在此處給予提示，告知 Part Barcode 已更新
+            } else if (currentCategory === 'Borrower' || currentCategory === 'Location') {
+                if (!lastPartBarcode) {
+                    alert("請先掃描一個 Part Barcode！");
+                    return;
+                }
+                
+                const now = new Date();
+                const pad = (num) => num.toString().padStart(2, '0');
+                const timestamp = `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+                let newRow = {
+                    'Part Barcode': lastPartBarcode,
+                    'Charge-out On': timestamp,
+                    'Borrower': '',
+                    'Location': ''
+                };
+                newRow[currentCategory] = decodedText;
+                
+                dataRows.unshift(newRow);
+                saveAndRefresh();
+            }
+        }
+
+        function updateCategory(cat) {
+            currentCategory = cat;
+            document.getElementById('status-overlay').textContent = `目前分類：${cat}`;
+        }
+
+        function saveAndRefresh() {
+            localStorage.setItem('scanned_data_rows', JSON.stringify(dataRows));
+            renderTable();
+        }
+
+        function renderTable() {
+            const tableBody = document.getElementById('data-rows');
+            tableBody.innerHTML = '';
+            dataRows.forEach((rowData, index) => {
+                const row = document.createElement('div');
+                row.className = 'row';
+                row.innerHTML = `
+                    <div class="cell">${rowData['Part Barcode'] || ''}</div>
+                    <div class="cell">${rowData['Charge-out On'] || ''}</div>
+                    <div class="cell">${rowData['Borrower'] || ''}</div>
+                    <div class="cell">${rowData['Location'] || ''}<button onclick="removeRow(${index})">×</button></div>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function removeRow(index) {
+            dataRows.splice(index, 1);
+            saveAndRefresh();
+        }
+
+        function clearAll() {
+            if (confirm('確定要清除所有資料嗎？')) {
+                dataRows = [];
+                lastPartBarcode = null;
+                localStorage.removeItem('scanned_data_rows');
+                localStorage.removeItem('last_part_barcode');
+                saveAndRefresh();
+            }
+        }
+
+        function exportCSV() {
+            if (dataRows.length === 0) return alert('沒有資料可匯出');
+
+            const headers = ['Part Barcode', 'Charge-out On', 'Borrower', 'Location'];
+            let csvContent = "﻿" + headers.join(',') + "
+";
+            
+            dataRows.forEach(row => {
+                const values = headers.map(header => `"${row[header] || ''}"`);
+                csvContent += values.join(',') + "
+";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            const dateStr = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "_");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `barcodes_${dateStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function playBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+                oscillator.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch(e) {}
+        }
+
+        function showSuccessOverlay(text) {
+            const overlay = document.getElementById('status-overlay');
+            overlay.textContent = `成功掃描: ${text}`;
+            overlay.style.backgroundColor = "var(--success)";
+            if (navigator.vibrate) navigator.vibrate(100);
+            setTimeout(() => {
+                overlay.textContent = `目前分類：${currentCategory}`;
+                overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+            }, 2000);
+        }
+
+        // 初始化
+        renderTable();
+        startScanner();
+    </script>
+</body>
+</html>
