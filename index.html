@@ -164,7 +164,7 @@
     </header>
 
     <div id="scanner-container">
-        <div id="status-overlay">目前分類：Borrower</div>
+        <div id="status-overlay">目前分類：Location</div>
         <div id="reader"></div>
     </div>
 
@@ -191,7 +191,7 @@
     </div>
 
     <script>
-        let currentCategory = 'Borrower';
+        let currentCategory = 'Location';
         let currentRow = JSON.parse(localStorage.getItem('current_row') || '{"Part Barcode":"","Charge-out On":"","Borrower":"","Location":""}');
         let dataRows = JSON.parse(localStorage.getItem('scanned_data_rows') || '[]');
 
