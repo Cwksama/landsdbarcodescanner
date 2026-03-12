@@ -400,7 +400,16 @@
                 allData.push(currentRow);
             }
 
-            if (allData.length === 0) return alert('沒有資料可匯出');
+            if (allData.length === 0) {
+                const overlay = document.getElementById('status-overlay');
+                overlay.textContent = "❌ 沒有資料可匯出";
+                overlay.style.backgroundColor = "var(--danger)";
+                setTimeout(() => {
+                    overlay.textContent = `目前分類：${currentCategory}`;
+                    overlay.style.backgroundColor = "rgba(0,0,0,0.6)";
+                }, 1500);
+                return;
+            }
 
             const headers = ['Part Barcode', 'Charge-out On', 'Borrower', 'Location', 'Message'];
             let csvContent = "\ufeff" + headers.join(',') + "\n";
